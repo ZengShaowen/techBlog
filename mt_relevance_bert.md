@@ -90,8 +90,7 @@ $$
 \begin{align*}
 \mathbf{S}  & =\mathrm {Attention}\left( \mathbf{H}_{}\mathbf{W}_q,\ \mathbf{H}_{} \mathbf{W}_k\right)  \\
 & = \mathrm {Attention}\left( (\mathbf{H}_{\mathbf{x}},\mathbf{H}_{\mathbf{y}})_{}\mathbf{W}_q, \ (\mathbf{H}_{\mathbf{x}},\mathbf{H}_{\mathbf{y}})_{} \mathbf{W}_k\right) \\
-& = [\mathbf{S}_{\mathbf{x}\rightarrow\mathbf{x}}, \mathbf{S}_{\mathbf{x}\rightarrow\mathbf{y}}, \\ 
-&\ \ \ \ \ \  \mathbf{S}_{\mathbf{y}\rightarrow\mathbf{x}}, \mathbf{S}_{\mathbf{y}\rightarrow\mathbf{y}}]
+& = \left[\begin{array}{l} \mathbf{S}_{\mathbf{x}\rightarrow\mathbf{x}} & \mathbf{S}_{\mathbf{x}\rightarrow\mathbf{y}}\\ \mathbf{S}_{\mathbf{y}\rightarrow\mathbf{x}} & \mathbf{S}_{\mathbf{y}\rightarrow\mathbf{y}} \end{array} \right]
 \end{align*}
 $$
 
