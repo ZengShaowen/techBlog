@@ -46,12 +46,12 @@
 #### 基于多任务学习的多业务模型
 
 由于美团搜索广告涉及餐饮、休娱亲子、丽人医美等大量业务场景，并且不同场景之间差异较大。从过去的实践经验可知，对于某个业务场景下的相关性优化，利用该业务数据训练的子模型相比利用全业务数据训练的通用模型往往效果更佳，但这种方法存在几个问题，1）多个子模型的维护和迭代成本更高，2）某些小场景由于训练数据稀疏难以正确学习到文本表示。受到多业务子模型优缺点的启发，我们尝试了区分业务场景的多任务学习，利用BERT作为共享层学习各个业务的通用特征表达，采用对应不同业务的多个分类器处理BERT输出的中间结果，实际应用中根据多个小场景的业务相似程度划分成N类，亦对应N个分类器，每个样本只经过其对应的分类器。多业务模型的主要优势在于能够利用所有数据进行全场景联合训练，同时一定程度上保留每个场景的特性，从而解决多业务场景下的相关性问题，模型结构如图1所示。
-![@图1 多业务模型结构| center |450x0](https://github.com/ZengShaowen/techBlog/blob/master/figures/mt_relevance_bert/multi_bu.png)
+![@图1 多业务模型结构| center |450x0](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/multi_bu.png)
 
 #### 引入品类信息的预训练
 
 由于美团搜索广告的样式较为原生，商品标题可能缺乏有效的结构化信息，有时仅根据Query和POI商品文本很难准确判断两者之间的语义相关性。例如【租车公司，<上水超跑俱乐部；宝马，奥迪>】，Query和POI文本的相关性不高，而该商户的三级品类是“养车-用车租车-租车”，我们认为引入品类信息有助于提高模型效果。为了更合理的引入品类信息，我们对BERT模型的输入编码部分进行改造，除了与原始BERT一致的Query、POI两个片段外，还引入了品类文本作为第三个片段，将品类文本作为额外片段的作用是防止品类信息对Query、POI产生交叉干扰，使模型对于POI文本和品类文本区别学习。图2为模型输入示意图，其中红色框内为品类片段的编码情况，Ec为品类片段的片段编码（Segment Embedding）。
-![@图2 BERT输入部分引入POI品类信息 | center | ](./1636268701047.png)
+![@图2 BERT输入部分引入POI品类信息 | center | ](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/bert_input_category.png)
 
 由于我们改变了BERT输入部分的结构，无法直接基于标准BERT进行相关性微调任务。我们对BERT重新进行预训练，并对预训练方式做了改进，将BERT预训练中用到的NSP（Next Sentence Prediction）任务替换为更适合搜索广告场景的点击预测任务，具体为“给定用户的搜索关键词、商户文本和商户品类信息，判断用户是否点击”。预训练数据采用自然及广告搜索曝光点击数据，大约6千万。
 
@@ -66,21 +66,19 @@
 |MT-BERT-Large-引入品类信息|77.87%|85.06%|79.14%|
 <center> 表1 广告相关性任务模型优化迭代指标 </center>
 
-
-
 ## 应用实践
 ### 模型压缩
 由于BERT模型的庞大参数量和前向预测耗时，直接部署上线会面临很大的性能挑战，通常需要将训练好的模型压缩为符合一定要求的小模型，业内常用模型压缩方案包括模型裁剪、低精度量化和知识蒸馏等。知识蒸馏[12]旨在有效地从大模型（教师模型）中迁移知识到小模型（学生模型）中，在业内得到了广泛的研究和应用，如HuggingFace提出的DistillBERT[13]和华为提出的TinyBERT[14] 等蒸馏方法，均在保证效果的前提下大幅提升了模型性能。经过在搜索等业务上的探索和迭代，美团NLP团队沉淀了一套基于两阶段知识蒸馏的模型压缩方案，包括通用型知识蒸馏和任务型知识蒸馏，具体过程如图3所示。在通用型知识蒸馏阶段，使用规模更大的预训练BERT模型作为教师模型，对学生模型在无监督预训练语料上进行通用知识蒸馏，得到通用轻量模型，该模型可用于初始化任务型知识蒸馏里的学生模型或直接对下游任务进行微调。在任务型知识蒸馏阶段，使用在有监督业务语料上微调的BERT模型作为教师模型，对学生模型在业务语料上进行领域知识蒸馏，得到最终的任务轻量模型，用于下游任务。实验证明，这两个阶段对于模型最终效果的提升都至关重要。
 
- ![@图3 两阶段知识蒸馏|center|](./未命名绘图 (1).png)
+ ![@图3 两阶段知识蒸馏|center| 600*0](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/two_stage_distill.png)
 
 在美团搜索广告场景下，首先我们基于MT-BERT-Large（24层1024维）在大规模无监督广告语料上进行第一阶段通用型知识蒸馏，得到MT-BERT-Medium（6层384维）通用轻量模型，在下游的广告相关性任务上进行微调。MT-BERT-Medium属于单塔交互结构，如图4(a)所示。目前美团搜索广告系统中，每个Query请求会召回上百个POI候选，交互模型需要分别对上百个Query-POI对进行实时推理，复杂度较高，很难满足上线条件。常见解决方案是将交互模型改造成如图4(b)所示的双塔结构，即分别对Query和POI编码后计算相似度。由于待召回的大量POI编码可以离线完成，线上只需对Query短文本实时编码，使用双塔结构后模型效率大幅提升。我们使用通用型蒸馏得到的MT-BERT-Medium模型对双塔模型中Query和POI的编码网络进行初始化并且在双塔在微调阶段始终共享参数，因此本文将双塔模型记为Siamese-MT-BERT-Medium（每个塔为6层384维）。双塔结构虽然带来效率的提升，但由于Query和POI的编码完全独立，缺少上下文交互，模型效果会有很大损失，如表2所示，Siamese-MT-BERT-Medium双塔模型相比MT-BERT-Medium交互模型在相关性Benchmark上各项指标都明显下降。
 
-![@图4 相关性模型结构对比|center|](./1636272627324.png)
+![@图4 相关性模型结构对比|center|](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/model_structure_comparison.png)
 
 
 为了充分结合交互结构效果好和双塔结构效率高的优势，Facebook Poly-encoder[15]、斯坦福大学ColBERT[16]等工作在双塔结构的基础上引入不同复杂程度的后交互层（Late Interaction Layer）以提升模型效果，如图4(c)所示。后交互网络能提升双塔模型效果，但也引入了更多的计算量，在高QPS场景仍然很难满足上线要求。针对上述问题，在第二阶段任务型知识蒸馏过程中，我们提出了虚拟交互机制（Virtual InteRacTion mechanism，VIRT），如图4(d)所示，通过在双塔结构中引入虚拟交互信息，将交互模型中的知识迁移到双塔模型中，从而在保持双塔模型性能的同时提升模型效果。
-![@图5 任务型知识蒸馏&虚拟交互|center|](./1636272675058.png)
+![@图5 任务型知识蒸馏&虚拟交互|center|](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/virtual_interact.png)
 
 任务型知识蒸馏及虚拟交互的具体过程如图5所示。在任务型知识蒸馏阶段，我们首先基于MT-BERT-Large交互模型在业务语料上进行微调得到教师模型。由于学生模型Siamese-MT-BERT-Medium缺乏上下文交互，如图5(b)所示，注意力矩阵中的灰色部分代表了2块缺失的交互信息，我们通过虚拟交互机制对缺失部分进行模拟，计算公式如下为：
 $$
@@ -127,12 +125,12 @@ $$ \mathcal{L}_{\text {virt }} =\left\|\widetilde{\mathbf{M}}_{\mathbf{x}\righta
 - 重排序参考相关性：在广告系统的竞价排序模块，在考虑点击率、转化率、交易额和出价等因素的同时，也需要考虑相关性分数；
 - TOP位次相关性门槛：首位、首屏等排序靠前的广告结果对于用户体验至关重要，因此针对TOP位次设置了相关性门槛，进一步改善用户体验。
 
-![@图6 相关性服务链路示意图|center|](./1636272982088.png)
+![@图6 相关性服务链路示意图|center| 450*0](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/relevance_pipeline.png)
 
 #### 模型部署
 为了进一步提升服务性能并且能有效利用计算资源，模型部署阶段我们采用高频流量缓存、长尾流量实时计算的方案。对高频Query-POI对进行离线相关性计算并写入缓存，每日对新增或商品信息变化的Query-POI对进行增量计算并更新缓存，线上相关性服务优先取缓存数据，如果取不到则基于蒸馏后的任务轻量模型进行实时计算。对于输入相关性服务的Query-POI对，缓存数据的覆盖率达到90%以上，有效缓解了在线计算的性能压力。
 
-![@图7 相关性分数离线/在线计算流程图|center|](./1636272950032.png)
+![@图7 相关性分数离线/在线计算流程图|center| 550*0](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/relevance_online.png)
 
 线上实时计算的任务轻量模型使用TF-Serving进行部署，TF-Serving预测引擎支持使用美团机器学习平台的模型优化工具—ART框架（基于Faster-Transformer改进）进行加速，在将模型转为FP16精度后，最终加速比可达到5.5，数值平均误差仅为5e-4，在保证精度的同时极大地提高了模型预测效率。
 
@@ -141,7 +139,7 @@ $$ \mathcal{L}_{\text {virt }} =\left\|\widetilde{\mathbf{M}}_{\mathbf{x}\righta
 
 下面列举了两个Badcase解决示例，图8(a)和8(b)分别包含了搜索“少儿古典舞”和“头皮spa”时的基线返回结果（左侧截屏）和实验组返回结果（右侧截屏），截图第一位为广告结果。在这两个示例中，实验组相关性模型将不相关结果“金益晨少儿艺术教育”和“莲琪科技美肤抗衰中心”过滤掉，相关广告得以曝光。
 
-![@图8 Badcase解决示例|center|](./1636272924679.png)
+![@图8 Badcase解决示例|center|](https://github.com/ZengShaowen/techBlog/raw/master/figures/mt_relevance_bert/badcase.png)
 
 
 ## 总结与展望
